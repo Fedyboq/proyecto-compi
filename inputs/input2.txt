@@ -1,0 +1,17 @@
+struct Punto {
+    var int x;
+    var int y
+};
+
+fun int main()
+    var Punto p;
+    p = new Punto {};
+    p.x = 2;
+    p.y = 3;
+    print(p.x);
+    print(p.y);
+    return(0)
+endfun
+
+
+

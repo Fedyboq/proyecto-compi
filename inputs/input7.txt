@@ -1,0 +1,17 @@
+fun int main()
+    var matrix m;
+    var int fila,columna,total;
+    m = new int[3][3] {11, 22, 33, 44, 55, 66, 77, 88, 99};
+    fila = 0;
+    total = 0;
+    while fila < 3 do
+        columna = 0;
+        while columna < 3 do
+            total = total + m[fila][columna];
+            columna = columna + 1
+        endwhile;
+        fila = fila + 1
+    endwhile;
+    print(total);
+    return(0)
+endfun

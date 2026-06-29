@@ -1,0 +1,8 @@
+fun int main()
+    var matrix m;
+    m = new int[1][2]{2,3};
+    print(m[0][0]);
+    print(m[0][1]);
+    return(0)
+endfun
+

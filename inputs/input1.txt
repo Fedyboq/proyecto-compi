@@ -1,0 +1,8 @@
+fun int main()
+    var int x;
+    var int y;
+    x = 5;
+    y = 10;
+    print(x+y);
+    return(0)
+endfun

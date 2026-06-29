@@ -1,0 +1,3 @@
+C:/Users/Federico/Downloads/Nueva carpeta (3)/compilador/cmake-build-debug/CMakeFiles/compilador.dir
+C:/Users/Federico/Downloads/Nueva carpeta (3)/compilador/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/Users/Federico/Downloads/Nueva carpeta (3)/compilador/cmake-build-debug/CMakeFiles/rebuild_cache.dir

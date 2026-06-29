@@ -1,0 +1,41 @@
+struct Resultado {
+    var int total;
+    var int mayor
+};
+
+fun int sumaLista(list valores, int n)
+    var int i,total;
+    i = 0;
+    total = 0;
+    while i < n do
+        total = total + valores[i];
+        i = i + 1
+    endwhile;
+    return(total)
+endfun
+
+fun int mayorLista(list valores, int n)
+    var int i,mayor;
+    i = 1;
+    mayor = valores[0];
+    while i < n do
+        if valores[i] > mayor then
+            mayor = valores[i]
+        endif;
+        i = i + 1
+    endwhile;
+    return(mayor)
+endfun
+
+fun int main()
+    var list datos;
+    var Resultado r;
+    datos = new int {4, 8, 3, 9};
+    r = new Resultado {};
+    r.total = sumaLista(datos, 4);
+    r.mayor = mayorLista(datos, 4);
+    print(r.total);
+    print(r.mayor);
+    return(0)
+endfun
+

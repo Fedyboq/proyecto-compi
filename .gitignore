@@ -1,0 +1,7 @@
+compilador.exe
+temp_outputs/
+*.o
+*.s
+a.out
+a.exe
+.vscode/
