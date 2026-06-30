@@ -87,6 +87,10 @@ Program *Parser::parseProgram() {
     error("declaracion de estructura ('struct'), variable ('var'), funcion ('fun') o fin de entrada");
   }
 
+  // Izar las funciones lambda como funciones globales.
+  for (auto l : lambdas)
+    p->fdlist.push_back(l);
+
   std::cout << "Parser exitoso" << std::endl;
   return p;
 }
@@ -120,27 +124,38 @@ StructDec *Parser::parseStructDec() {
 VarDec *Parser::parseVarDec() {
   expect(Token::VAR);
 
+  bool isStruct = false;
   if (match(Token::STRUCT)) {
     if (!match(Token::ID))
       error("nombre de estructura despues de 'struct'");
+    isStruct = true;
   } else if (!match(Token::ID)) {
-    error("nombre de tipo despues de 'var'");
+    error("nombre de tipo o variable despues de 'var'");
   }
-  std::string type = previous->text;
+  std::string firstId = previous->text; // puede ser el tipo o el nombre
 
   VarDec *vd = new VarDec();
-  vd->type = type;
+
+  // Inferencia de tipos: 'var x = expr' (no se escribió un tipo explícito).
+  if (!isStruct && check(Token::ASSIGN)) {
+    advance(); // consume '='
+    vd->type = "";          // el tipo se infiere en el análisis semántico
+    vd->vars.push_back(firstId);
+    vd->init = parseCE();
+    return vd;
+  }
+
+  // Forma con tipo explícito: 'var TIPO id {, id}'
+  vd->type = firstId;
 
   if (!match(Token::ID))
     error("nombre de variable después del tipo '" + vd->type + "'");
-  std::string varName = previous->text;
-  vd->vars.push_back(varName);
+  vd->vars.push_back(previous->text);
 
   while (match(Token::COMA)) {
     if (!match(Token::ID))
       error("nombre de variable después de ','");
-    varName = previous->text;
-    vd->vars.push_back(varName);
+    vd->vars.push_back(previous->text);
   }
   return vd;
 }
@@ -157,6 +172,20 @@ FunDec *Parser::parseFunDec() {
   if (!match(Token::ID))
     error("nombre de función después del tipo '" + fd->tipo + "'");
   fd->nombre = previous->text;
+
+  // Parámetros de tipo genéricos opcionales: fun T nombre<T, U>(...)
+  if (match(Token::LE)) {
+    if (!match(Token::ID))
+      error("nombre de parámetro de tipo después de '<'");
+    fd->typeParams.push_back(previous->text);
+    while (match(Token::COMA)) {
+      if (!match(Token::ID))
+        error("nombre de parámetro de tipo después de ','");
+      fd->typeParams.push_back(previous->text);
+    }
+    if (!match(Token::GT))
+      error("'>' para cerrar los parámetros de tipo de '" + fd->nombre + "'");
+  }
 
   expect(Token::LPAREN);
   while (check(Token::ID)) {
@@ -195,13 +224,14 @@ Body *Parser::parseBody() {
   auto isBodyTerminator = [&]() {
     return check(Token::ENDIF) || check(Token::ENDWHILE) ||
            check(Token::ENDFUN) || check(Token::ELSE) ||
-           check(Token::ENDSWITCH) || check(Token::ENDDO) || isAtEnd();
+           check(Token::ENDSWITCH) || check(Token::ENDDO) ||
+           check(Token::ENDLAMBDA) || isAtEnd();
   };
 
   auto isStmStart = [&]() {
     return check(Token::ID) || check(Token::PRINT) || check(Token::RETURN) ||
            check(Token::IF) || check(Token::WHILE) || check(Token::BREAK) ||
-           check(Token::SWITCH) || check(Token::DO);
+           check(Token::SWITCH) || check(Token::DO) || check(Token::MUL);
   };
 
   if (!isBodyTerminator()) {
@@ -253,6 +283,15 @@ Stm *Parser::parseStm() {
     } else {
       error("Operacion de asignacion no aceptada. Se espero =");
     }
+  }
+
+  if (match(Token::MUL)) { // asignación por desreferencia: *p = expr
+    Exp *p = parseF();
+    Exp *target = new DerefExp(p);
+    if (!match(Token::ASSIGN))
+      error("'=' después de '*expr'");
+    Exp *rhs = parseCE();
+    return new AssignStm(target, rhs);
   }
 
   if (match(Token::PRINT)) {
@@ -433,11 +472,57 @@ Exp *Parser::parseT() {
 Exp *Parser::parseF() {
   if (match(Token::NOT)) {
     Exp *operand = parseF();
-    return new UnaryExp(operand);
+    return new UnaryExp(operand, NOT_OP);
+  }
+
+  if (match(Token::MINUS)) {
+    Exp *operand = parseF();
+    return new UnaryExp(operand, NEG_OP);
+  }
+
+  if (match(Token::LAMBDA)) { // función anónima: lambda(params) cuerpo endlambda
+    FunDec *fd = new FunDec();
+    fd->nombre = "__lambda_" + std::to_string(lambdaCounter++);
+    fd->tipo = "int";
+    expect(Token::LPAREN);
+    while (check(Token::ID)) {
+      match(Token::ID);
+      fd->Ptipos.push_back(previous->text);
+      if (!match(Token::ID))
+        error("nombre de parámetro en la lambda");
+      fd->Pnombres.push_back(previous->text);
+      if (check(Token::RPAREN))
+        break;
+      if (!match(Token::COMA))
+        error("',' o ')' en los parámetros de la lambda");
+    }
+    expect(Token::RPAREN);
+    fd->cuerpo = parseBody();
+    if (!match(Token::ENDLAMBDA))
+      error("'endlambda' para cerrar la lambda");
+    lambdas.push_back(fd);
+    return new LambdaExp(fd->nombre);
+  }
+
+  if (match(Token::AMP)) { // dirección-de: &x
+    if (!match(Token::ID))
+      error("identificador después de '&'");
+    return new AddrExp(previous->text);
+  }
+
+  if (match(Token::MUL)) { // desreferencia: *p
+    Exp *p = parseF();
+    return new DerefExp(p);
   }
 
   if (match(Token::NUM))
     return new NumberExp(std::stoi(previous->text));
+
+  if (match(Token::FLOATNUM))
+    return new FloatExp(std::stod(previous->text));
+
+  if (match(Token::STRING))
+    return new StringExp(previous->text);
 
   if (match(Token::TRUE))
     return new NumberExp(1);

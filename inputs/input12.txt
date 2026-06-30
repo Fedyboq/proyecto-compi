@@ -1,0 +1,7 @@
+fun int main()
+    var x = 10;
+    var y = x + 5;
+    print(y);
+    print(-3);
+    return(0)
+endfun

@@ -2,11 +2,13 @@
 #include "ast.h"
 #include <algorithm>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
 int BinaryExp::accept(Visitor *v)    { return v->visit(this); }
 int NumberExp::accept(Visitor *v)    { return v->visit(this); }
+int FloatExp::accept(Visitor *v)     { return v->visit(this); }
 int IdExp::accept(Visitor *v)        { return v->visit(this); }
 int Program::accept(Visitor *v)      { return v->visit(this); }
 int PrintStm::accept(Visitor *v)     { return v->visit(this); }
@@ -26,6 +28,10 @@ int DoWhileStm::accept(Visitor *v)   { return v->visit(this); }
 int BreakStm::accept(Visitor *v)     { return v->visit(this); }
 int SwitchStm::accept(Visitor *v)    { return v->visit(this); }
 int UnaryExp::accept(Visitor *v)     { return v->visit(this); }
+int StringExp::accept(Visitor *v)    { return v->visit(this); }
+int AddrExp::accept(Visitor *v)      { return v->visit(this); }
+int DerefExp::accept(Visitor *v)     { return v->visit(this); }
+int LambdaExp::accept(Visitor *v)    { return v->visit(this); }
 int IndexExp::accept(Visitor *v)     { return v->visit(this); }
 int MatrixExp::accept(Visitor *v)    { return v->visit(this); }
 int FieldExp::accept(Visitor *v)     { return v->visit(this); }
@@ -80,7 +86,26 @@ int TypeCheckerVisitor::visit(Body *body) {
   return 0;
 }
 
+std::string TypeCheckerVisitor::inferType(Exp *e) {
+  if (dynamic_cast<FloatExp *>(e)) return "float";
+  if (dynamic_cast<StringExp *>(e)) return "string";
+  if (dynamic_cast<ExpListVals *>(e) || dynamic_cast<ExpListSize *>(e))
+    return "list";
+  if (dynamic_cast<ExpMatrixVals *>(e) || dynamic_cast<ExpMatrixSize *>(e))
+    return "matrix";
+  if (auto *id = dynamic_cast<IdExp *>(e)) {
+    std::string t;
+    if (tiposVar.lookup(id->value, t) && !t.empty()) return t;
+  }
+  return "int"; // por defecto: entero (aritmética, llamadas, etc.)
+}
+
 int TypeCheckerVisitor::visit(VarDec *vd) {
+  if (vd->init) {
+    vd->init->accept(this);
+    if (vd->type.empty())
+      vd->type = inferType(vd->init); // inferencia de tipos
+  }
   for (auto &nombre : vd->vars) {
     if (entorno.check(nombre)) {
       std::cerr << "[TypeChecker] Advertencia: la variable '" << nombre
@@ -166,9 +191,17 @@ int TypeCheckerVisitor::visit(ExpMatrixVals *stm) {
 }
 
 int TypeCheckerVisitor::visit(FcallExp *fcall) {
-  if (funAridad.find(fcall->nombre) == funAridad.end())
+  if (funAridad.find(fcall->nombre) == funAridad.end()) {
+    // Si el nombre es una variable, es una llamada a un puntero a función
+    // (lambda almacenada): no se valida la aridad estáticamente.
+    if (entorno.check(fcall->nombre)) {
+      for (auto arg : fcall->argumentos)
+        arg->accept(this);
+      return 0;
+    }
     throw std::runtime_error("[TypeChecker] Función no definida: '" +
                              fcall->nombre + "' llamada en '" + funcionActual + "'");
+  }
 
   int esperados = funAridad[fcall->nombre];
   int recibidos = int(fcall->argumentos.size());
@@ -264,6 +297,28 @@ int TypeCheckerVisitor::visit(FieldExp *exp) {
 }
 
 int TypeCheckerVisitor::visit(NumberExp *) { return 0; }
+int TypeCheckerVisitor::visit(FloatExp *f) {
+  floatLiterals.push_back(f); // recolectar para emitir en .data
+  return 0;
+}
+int TypeCheckerVisitor::visit(StringExp *s) {
+  stringLiterals.push_back(s); // recolectar para emitir en .data
+  return 0;
+}
+int TypeCheckerVisitor::visit(AddrExp *exp) {
+  if (!entorno.check(exp->name))
+    throw std::runtime_error("[TypeChecker] Variable no declarada: '" +
+                             exp->name + "' usada con '&' en la función '" +
+                             funcionActual + "'");
+  return 0;
+}
+int TypeCheckerVisitor::visit(DerefExp *exp) {
+  exp->ptr->accept(this);
+  return 0;
+}
+int TypeCheckerVisitor::visit(LambdaExp *) {
+  return 0; // el cuerpo se verifica como función global izada
+}
 int TypeCheckerVisitor::visit(Program *)     { return 0; }
 
 int TypeCheckerVisitor::visit(DoWhileStm *stm) {
@@ -298,6 +353,7 @@ int GenCodeVisitor::storeTarget(const LVal &lv) {
   case LValKind::Index:  return storeIndex(lv);
   case LValKind::Matrix: return storeMatrix(lv);
   case LValKind::Field:  return storeField(lv);
+  case LValKind::Deref:  return storeDeref(lv);
   default:
     throw std::runtime_error("Asignacion a una expresion que no es lvalue");
   }
@@ -311,7 +367,13 @@ int GenCodeVisitor::generar(Program *program) {
   for (auto fd : program->fdlist) {
     funParamNames[fd->nombre] = fd->Pnombres;
     funParamTypes[fd->nombre] = fd->Ptipos;
+    funReturnType[fd->nombre] = fd->tipo;
   }
+  // Asignar una etiqueta .data a cada literal de cadena y float recolectado.
+  for (size_t i = 0; i < tipos.stringLiterals.size(); ++i)
+    tipos.stringLiterals[i]->strLabel = "str_" + std::to_string(i);
+  for (size_t i = 0; i < tipos.floatLiterals.size(); ++i)
+    tipos.floatLiterals[i]->fltLabel = "flt_" + std::to_string(i);
   program->accept(this);
   return 0;
 }
@@ -319,6 +381,20 @@ int GenCodeVisitor::generar(Program *program) {
 int GenCodeVisitor::visit(Program *program) {
   out << ".data\n";
   out << "print_fmt: .string \"%ld \\n\"\n";
+  out << "print_str_fmt: .string \"%s\\n\"\n";
+  out << "print_flt_fmt: .string \"%g\\n\"\n";
+
+  // Literales de cadena recolectados por el TypeChecker.
+  for (auto s : tipos.stringLiterals)
+    out << s->strLabel << ": .string \"" << s->value << "\"\n";
+
+  // Literales en punto flotante (constantes .double).
+  for (auto f : tipos.floatLiterals) {
+    std::ostringstream oss;
+    oss.precision(17);
+    oss << f->value;
+    out << f->fltLabel << ": .double " << oss.str() << "\n";
+  }
 
   for (auto dec : program->vdlist)
     dec->accept(this);
@@ -360,6 +436,13 @@ int GenCodeVisitor::visit(VarDec *stm) {
       offset -= 8;
     }
   }
+  // Inicializador con inferencia de tipos ('var x = expr'): se emite como una
+  // asignación normal una vez reservado el espacio (solo variables locales).
+  if (stm->init && entornoFuncion && !stm->vars.empty()) {
+    IdExp target(stm->vars.front());
+    AssignStm assign(&target, stm->init);
+    assign.accept(this);
+  }
   return 0;
 }
 
@@ -374,16 +457,121 @@ int GenCodeVisitor::visit(NumberExp *exp) {
   return 0;
 }
 
+int GenCodeVisitor::visit(StringExp *exp) {
+  // Carga la dirección del literal de cadena (RIP-relative).
+  out << "  leaq " << exp->strLabel << "(%rip), %rax\n";
+  return 0;
+}
+
+// Tipo estático de una expresión a efectos de generación de código: "float" o
+// "int". Sirve para decidir si se usan registros SSE (xmm) o enteros (%rax) y
+// para aplicar la promoción automática en operaciones mixtas.
+std::string GenCodeVisitor::exprType(Exp *e) {
+  if (dynamic_cast<FloatExp *>(e)) return "float";
+  if (auto *id = dynamic_cast<IdExp *>(e)) {
+    auto it = variableTypes.find(id->value);
+    if (it != variableTypes.end() && it->second == "float") return "float";
+    return "int";
+  }
+  if (auto *u = dynamic_cast<UnaryExp *>(e)) {
+    if (u->op == NEG_OP) return exprType(u->operand);
+    return "int";
+  }
+  if (auto *b = dynamic_cast<BinaryExp *>(e)) {
+    bool arith = (b->op == PLUS_OP || b->op == MINUS_OP ||
+                  b->op == MUL_OP || b->op == DIV_OP);
+    if (arith && (exprType(b->left) == "float" || exprType(b->right) == "float"))
+      return "float";
+    return "int"; // comparaciones y lógicos producen un entero (bool)
+  }
+  if (auto *fc = dynamic_cast<FcallExp *>(e)) {
+    auto it = funReturnType.find(fc->nombre);
+    if (it != funReturnType.end() && it->second == "float") return "float";
+  }
+  return "int";
+}
+
+// Evalúa e dejando un double en %xmm0. Si e es entero, lo promueve (cvtsi2sd).
+void GenCodeVisitor::genFloat(Exp *e) {
+  if (exprType(e) == "float") {
+    e->accept(this); // deja el double en %xmm0
+  } else {
+    e->accept(this); // entero en %rax
+    out << "  cvtsi2sd %rax, %xmm0\n"; // promoción int -> float
+  }
+}
+
+int GenCodeVisitor::visit(FloatExp *exp) {
+  out << "  movsd " << exp->fltLabel << "(%rip), %xmm0\n";
+  return 0;
+}
+
+int GenCodeVisitor::visit(AddrExp *exp) {
+  // Dirección de una variable (leaq). No es lvalue.
+  if (memoriaGlobal.count(exp->name))
+    out << "  leaq " << exp->name << "(%rip), %rax\n";
+  else
+    out << "  leaq " << memoria[exp->name] << "(%rbp), %rax\n";
+  return 0;
+}
+
+int GenCodeVisitor::visit(DerefExp *exp) {
+  if (lvalTarget) {
+    // *p = ... : el destino es la dirección apuntada por p.
+    lvalTarget->kind  = LValKind::Deref;
+    lvalTarget->index = exp->ptr;
+    return 0;
+  }
+  exp->ptr->accept(this);          // dirección -> %rax
+  out << "  movq (%rax), %rax\n";  // valor apuntado
+  return 0;
+}
+
+int GenCodeVisitor::visit(LambdaExp *exp) {
+  // Valor de la lambda = dirección de la función izada (puntero a función).
+  out << "  leaq " << exp->name << "(%rip), %rax\n";
+  return 0;
+}
+
+int GenCodeVisitor::storeDeref(const LVal &lv) {
+  // Al entrar, el valor a almacenar está en %rax.
+  out << "  pushq %rax\n";
+  lv.index->accept(this);     // puntero -> %rax (dirección destino)
+  out << "  movq %rax, %rdi\n";
+  out << "  popq %rax\n";     // valor
+  out << "  movq %rax, (%rdi)\n";
+  return 0;
+}
+
+bool GenCodeVisitor::exprIsString(Exp *e) {
+  if (dynamic_cast<StringExp *>(e))
+    return true;
+  if (auto *id = dynamic_cast<IdExp *>(e)) {
+    auto it = variableTypes.find(id->value);
+    return it != variableTypes.end() && it->second == "string";
+  }
+  return false;
+}
+
 int GenCodeVisitor::visit(IdExp *exp) {
   if (lvalTarget) {
     lvalTarget->kind = LValKind::Id;
     lvalTarget->name = exp->value;
     return 0;
   }
-  if (memoriaGlobal.count(exp->value))
-    out << "  movq " << exp->value << "(%rip), %rax\n";
-  else
-    out << "  movq " << memoria[exp->value] << "(%rbp), %rax\n";
+  bool isFloat = variableTypes.count(exp->value) &&
+                 variableTypes[exp->value] == "float";
+  if (memoriaGlobal.count(exp->value)) {
+    if (isFloat)
+      out << "  movsd " << exp->value << "(%rip), %xmm0\n";
+    else
+      out << "  movq " << exp->value << "(%rip), %rax\n";
+  } else {
+    if (isFloat)
+      out << "  movsd " << memoria[exp->value] << "(%rbp), %xmm0\n";
+    else
+      out << "  movq " << memoria[exp->value] << "(%rbp), %rax\n";
+  }
   return 0;
 }
 
@@ -548,6 +736,31 @@ int GenCodeVisitor::visit(ExpMatrixVals *stm) {
 
 int GenCodeVisitor::visit(AssignStm *stm) {
   LVal target = captureLVal(stm->target);
+
+  // Asignación con tipos float: conversión y promoción automáticas.
+  if (target.kind == LValKind::Id) {
+    std::string targetType =
+        variableTypes.count(target.name) ? variableTypes[target.name] : "int";
+    bool rhsFloat = (exprType(stm->e) == "float");
+    if (targetType == "float") {
+      genFloat(stm->e); // promueve int -> float si hace falta
+      if (memoriaGlobal.count(target.name))
+        out << "  movsd %xmm0, " << target.name << "(%rip)\n";
+      else
+        out << "  movsd %xmm0, " << memoria[target.name] << "(%rbp)\n";
+      return 0;
+    }
+    if (rhsFloat) { // destino entero, valor float -> truncar
+      genFloat(stm->e);
+      out << "  cvttsd2si %xmm0, %rax\n";
+      if (memoriaGlobal.count(target.name))
+        out << "  movq %rax, " << target.name << "(%rip)\n";
+      else
+        out << "  movq %rax, " << memoria[target.name] << "(%rbp)\n";
+      return 0;
+    }
+  }
+
   bool specialRhs = stm->e->isSpecialRhs();
 
   if (target.kind == LValKind::Id && specialRhs) {
@@ -843,6 +1056,46 @@ int GenCodeVisitor::visit(BinaryExp *exp) {
     return 0;
   }
 
+  // 1b) Aritmética / comparación en punto flotante (SSE). Si algún operando es
+  //     float, ambos se cargan en %xmm0/%xmm1 (promoviendo enteros) y se opera
+  //     con instrucciones SSE. Resultado: aritmética -> %xmm0; comparación -> %rax.
+  bool anyFloat = (exprType(exp->left) == "float" || exprType(exp->right) == "float");
+  bool arith = (exp->op == PLUS_OP || exp->op == MINUS_OP ||
+                exp->op == MUL_OP || exp->op == DIV_OP);
+  bool comp = (exp->op == LE_OP || exp->op == GT_OP || exp->op == LEQ_OP ||
+               exp->op == GEQ_OP || exp->op == EQ_OP || exp->op == NE_OP);
+  if (anyFloat && (arith || comp)) {
+    genFloat(exp->left);
+    out << "  subq $8, %rsp\n  movsd %xmm0, (%rsp)\n"; // guardar izquierda
+    genFloat(exp->right);
+    out << "  movsd %xmm0, %xmm1\n";                   // derecha -> %xmm1
+    out << "  movsd (%rsp), %xmm0\n  addq $8, %rsp\n"; // izquierda -> %xmm0
+    if (arith) {
+      switch (exp->op) {
+      case PLUS_OP:  out << "  addsd %xmm1, %xmm0\n"; break;
+      case MINUS_OP: out << "  subsd %xmm1, %xmm0\n"; break;
+      case MUL_OP:   out << "  mulsd %xmm1, %xmm0\n"; break;
+      case DIV_OP:   out << "  divsd %xmm1, %xmm0\n"; break;
+      default: break;
+      }
+    } else {
+      out << "  ucomisd %xmm1, %xmm0\n";
+      out << "  movq $0, %rax\n";
+      const char *set = "sete";
+      switch (exp->op) {
+      case LE_OP:  set = "setb";  break;
+      case GT_OP:  set = "seta";  break;
+      case LEQ_OP: set = "setbe"; break;
+      case GEQ_OP: set = "setae"; break;
+      case EQ_OP:  set = "sete";  break;
+      case NE_OP:  set = "setne"; break;
+      default: break;
+      }
+      out << "  " << set << " %al\n  movzbq %al, %rax\n";
+    }
+    return 0;
+  }
+
   // 2) Peephole (caso r=0 de Sethi-Ullman): si el operando derecho no necesita
   //    registro (es un número o una variable) lo plegamos como operando
   //    inmediato/memoria de la propia instrucción y evitamos el push/pop.
@@ -876,6 +1129,10 @@ int GenCodeVisitor::visit(BinaryExp *exp) {
 
 int GenCodeVisitor::visit(UnaryExp *exp) {
   exp->operand->accept(this);
+  if (exp->op == NEG_OP) {
+    out << "  negq %rax\n"; // negación aritmética
+    return 0;
+  }
   int lbl = labelcont++;
   out << "  cmpq $0, %rax\n";
   out << "  je not_true_" << lbl << "\n";
@@ -888,9 +1145,20 @@ int GenCodeVisitor::visit(UnaryExp *exp) {
 }
 
 int GenCodeVisitor::visit(PrintStm *stm) {
+  if (exprType(stm->e) == "float") {
+    genFloat(stm->e); // double -> %xmm0
+    out << "  leaq print_flt_fmt(%rip), %rdi\n";
+    out << "  movb $1, %al\n"; // 1 registro vectorial usado (printf variádica)
+    out << "  call printf@PLT\n";
+    return 0;
+  }
+  bool isStr = exprIsString(stm->e);
   stm->e->accept(this);
   out << "  movq %rax, %rsi\n";
-  out << "  leaq print_fmt(%rip), %rdi\n";
+  if (isStr)
+    out << "  leaq print_str_fmt(%rip), %rdi\n";
+  else
+    out << "  leaq print_fmt(%rip), %rdi\n";
   out << "  movq $0, %rax\n";
   out << "  call printf@PLT\n";
   return 0;
@@ -952,7 +1220,10 @@ int GenCodeVisitor::visit(DoWhileStm *stm) {
 }
 
 int GenCodeVisitor::visit(ReturnStm *stm) {
-  stm->e->accept(this);
+  if (funReturnType.count(nombreFuncion) && funReturnType[nombreFuncion] == "float")
+    genFloat(stm->e); // valor de retorno en %xmm0
+  else
+    stm->e->accept(this); // valor de retorno en %rax
   out << "  jmp .end_" << nombreFuncion << "\n";
   return 0;
 }
@@ -1020,7 +1291,11 @@ int GenCodeVisitor::visit(FunDec *f) {
   out << f->nombre << ":\n";
   out << "  pushq %rbp\n";
   out << "  movq %rsp, %rbp\n";
-  out << "  subq $" << funcontador[f->nombre] * 8 << ", %rsp\n";
+  // El marco se alinea a 16 bytes: la ABI x86-64 exige %rsp alineado a 16
+  // antes de cada 'call' (printf/malloc usan SSE alineado internamente).
+  int frame = funcontador[f->nombre] * 8;
+  frame = (frame + 15) & ~15;
+  out << "  subq $" << frame << ", %rsp\n";
 
   int nParams = int(f->Pnombres.size());
   for (int i = 0; i < nParams; i++) {
@@ -1053,7 +1328,12 @@ int GenCodeVisitor::visit(FcallExp *exp) {
   int nArgs = int(exp->argumentos.size());
   for (int i = 0; i < nArgs; i++) {
     exp->argumentos[i]->accept(this);
-    out << "  movq %rax, " << argRegs[i] << "\n";
+    // Convención uniforme: todo valor de 64 bits se pasa por registro entero.
+    // Un float se mueve de %xmm0 al GPR conservando su patrón de bits.
+    if (exprType(exp->argumentos[i]) == "float")
+      out << "  movq %xmm0, " << argRegs[i] << "\n";
+    else
+      out << "  movq %rax, " << argRegs[i] << "\n";
 
     if (funParamTypes.count(exp->nombre) &&
         i < int(funParamTypes[exp->nombre].size()) &&
@@ -1074,7 +1354,17 @@ int GenCodeVisitor::visit(FcallExp *exp) {
       }
     }
   }
-  out << "  call " << exp->nombre << "\n";
+  // Llamada directa si es una función declarada; indirecta (call *reg) si el
+  // nombre es una variable que contiene un puntero a función (lambda).
+  if (funReturnType.count(exp->nombre)) {
+    out << "  call " << exp->nombre << "\n";
+  } else {
+    if (memoriaGlobal.count(exp->nombre))
+      out << "  movq " << exp->nombre << "(%rip), %r11\n";
+    else
+      out << "  movq " << memoria[exp->nombre] << "(%rbp), %r11\n";
+    out << "  call *%r11\n";
+  }
   return 0;
 }
 
@@ -1134,8 +1424,21 @@ int Opt1Visitor::visit(NumberExp *exp) {
   return 0;
 }
 
+int Opt1Visitor::visit(StringExp *) { return 0; }
+int Opt1Visitor::visit(FloatExp *) { return 0; }
+int Opt1Visitor::visit(AddrExp *) { return 0; }
+int Opt1Visitor::visit(DerefExp *exp) { exp->ptr->accept(this); return 0; }
+int Opt1Visitor::visit(LambdaExp *) { return 0; }
 int Opt1Visitor::visit(IdExp *) { return 0; }
-int Opt1Visitor::visit(UnaryExp *) { return 0; }
+
+int Opt1Visitor::visit(UnaryExp *exp) {
+  exp->operand->accept(this);
+  if (exp->op == NEG_OP && exp->operand->isConstant) {
+    exp->isConstant = true;
+    exp->constantValue = -exp->operand->constantValue;
+  }
+  return 0;
+}
 int Opt1Visitor::visit(IndexExp *) { return 0; }
 int Opt1Visitor::visit(MatrixExp *) { return 0; }
 int Opt1Visitor::visit(FieldExp *) { return 0; }
@@ -1188,7 +1491,10 @@ int Opt1Visitor::visit(Body *body) {
   return 0;
 }
 
-int Opt1Visitor::visit(VarDec *) { return 0; }
+int Opt1Visitor::visit(VarDec *vd) {
+  if (vd->init) vd->init->accept(this);
+  return 0;
+}
 int Opt1Visitor::visit(FcallExp *) { return 0; }
 int Opt1Visitor::visit(ReturnStm *) { return 0; }
 
@@ -1219,6 +1525,11 @@ int Opt2Visitor::visit(BinaryExp *exp) {
 }
 
 int Opt2Visitor::visit(NumberExp *exp) { exp->label = 1; return 0; }
+int Opt2Visitor::visit(StringExp *exp) { exp->label = 1; return 0; }
+int Opt2Visitor::visit(FloatExp *exp)  { exp->label = 1; return 0; }
+int Opt2Visitor::visit(AddrExp *exp)   { exp->label = 1; return 0; }
+int Opt2Visitor::visit(DerefExp *exp)  { exp->ptr->accept(this); exp->label = 1; return 0; }
+int Opt2Visitor::visit(LambdaExp *exp) { exp->label = 1; return 0; }
 int Opt2Visitor::visit(IdExp *exp)     { exp->label = 1; return 0; }
 int Opt2Visitor::visit(IndexExp *exp)  { exp->label = 1; return 0; }
 int Opt2Visitor::visit(MatrixExp *exp) { exp->label = 1; return 0; }
@@ -1276,7 +1587,10 @@ int Opt2Visitor::visit(Body *body) {
   return 0;
 }
 
-int Opt2Visitor::visit(VarDec *) { return 0; }
+int Opt2Visitor::visit(VarDec *vd) {
+  if (vd->init) vd->init->accept(this);
+  return 0;
+}
 int Opt2Visitor::visit(ReturnStm *r) { r->e->accept(this); return 0; }
 
 int Opt2Visitor::visit(FunDec *fd) {
@@ -1284,3 +1598,163 @@ int Opt2Visitor::visit(FunDec *fd) {
   return 0;
 }
 
+
+// ---------------------------------------------------------------------------
+// Impresor del AST (visualización del AST como árbol indentado, Sem4).
+// Recorre el AST con dynamic_cast y vuelca una representación legible. Se usa
+// desde la aplicación (modo --ast) para mostrar la estructura del programa.
+// ---------------------------------------------------------------------------
+static const char *binName(BinaryOp op) {
+  switch (op) {
+  case PLUS_OP: return "+";   case MINUS_OP: return "-";
+  case MUL_OP: return "*";    case DIV_OP: return "/";
+  case POW_OP: return "**";   case LE_OP: return "<";
+  case GT_OP: return ">";     case LEQ_OP: return "<=";
+  case GEQ_OP: return ">=";   case EQ_OP: return "==";
+  case NE_OP: return "!=";    case AND_OP: return "&&";
+  case OR_OP: return "||";    default: return "?";
+  }
+}
+
+static void ind(std::ostream &o, int d) {
+  for (int i = 0; i < d; i++) o << "  ";
+}
+
+static void pExp(Exp *e, std::ostream &o, int d);
+
+static void pExp(Exp *e, std::ostream &o, int d) {
+  ind(o, d);
+  if (!e) { o << "- (null)\n"; return; }
+  if (auto *n = dynamic_cast<NumberExp *>(e)) {
+    o << "- NumberExp(" << n->value << ")\n";
+  } else if (auto *fl = dynamic_cast<FloatExp *>(e)) {
+    o << "- FloatExp(" << fl->value << ")\n";
+  } else if (auto *s = dynamic_cast<StringExp *>(e)) {
+    o << "- StringExp(\"" << s->value << "\")\n";
+  } else if (auto *id = dynamic_cast<IdExp *>(e)) {
+    o << "- IdExp(" << id->value << ")\n";
+  } else if (auto *b = dynamic_cast<BinaryExp *>(e)) {
+    o << "- BinaryExp(" << binName(b->op) << ")\n";
+    pExp(b->left, o, d + 1);
+    pExp(b->right, o, d + 1);
+  } else if (auto *u = dynamic_cast<UnaryExp *>(e)) {
+    o << "- UnaryExp(" << (u->op == NEG_OP ? "-" : "!") << ")\n";
+    pExp(u->operand, o, d + 1);
+  } else if (auto *ix = dynamic_cast<IndexExp *>(e)) {
+    o << "- IndexExp(" << ix->name << ")\n";
+    pExp(ix->index, o, d + 1);
+  } else if (auto *m = dynamic_cast<MatrixExp *>(e)) {
+    o << "- MatrixExp(" << m->name << ")\n";
+    pExp(m->row, o, d + 1);
+    pExp(m->col, o, d + 1);
+  } else if (auto *ad = dynamic_cast<AddrExp *>(e)) {
+    o << "- AddrExp(&" << ad->name << ")\n";
+  } else if (auto *dr = dynamic_cast<DerefExp *>(e)) {
+    o << "- DerefExp(*)\n";
+    pExp(dr->ptr, o, d + 1);
+  } else if (auto *lm = dynamic_cast<LambdaExp *>(e)) {
+    o << "- LambdaExp(" << lm->name << ")\n";
+  } else if (auto *f = dynamic_cast<FieldExp *>(e)) {
+    o << "- FieldExp(" << f->object << "." << f->field << ")\n";
+  } else if (auto *fc = dynamic_cast<FcallExp *>(e)) {
+    o << "- FcallExp(" << fc->nombre << ")\n";
+    for (auto *a : fc->argumentos) pExp(a, o, d + 1);
+  } else if (auto *ls = dynamic_cast<ExpListSize *>(e)) {
+    o << "- new " << ls->type << "[] (tamaño)\n";
+    pExp(ls->size, o, d + 1);
+  } else if (auto *lv = dynamic_cast<ExpListVals *>(e)) {
+    o << "- new " << lv->type << " {valores}\n";
+    for (auto *v : lv->values) pExp(v, o, d + 1);
+  } else if (auto *ms = dynamic_cast<ExpMatrixSize *>(e)) {
+    o << "- new " << ms->type << "[][] (tamaño)\n";
+    pExp(ms->rows, o, d + 1);
+    pExp(ms->cols, o, d + 1);
+  } else if (auto *mv = dynamic_cast<ExpMatrixVals *>(e)) {
+    o << "- new " << mv->type << "[][] {valores}\n";
+    pExp(mv->rows, o, d + 1);
+    pExp(mv->cols, o, d + 1);
+    for (auto *v : mv->values) pExp(v, o, d + 1);
+  } else {
+    o << "- Exp\n";
+  }
+}
+
+static void pBody(Body *b, std::ostream &o, int d);
+
+static void pStm(Stm *s, std::ostream &o, int d) {
+  ind(o, d);
+  if (auto *a = dynamic_cast<AssignStm *>(s)) {
+    o << "- AssignStm\n";
+    ind(o, d + 1); o << "target:\n"; pExp(a->target, o, d + 2);
+    ind(o, d + 1); o << "value:\n";  pExp(a->e, o, d + 2);
+  } else if (auto *p = dynamic_cast<PrintStm *>(s)) {
+    o << "- PrintStm\n"; pExp(p->e, o, d + 1);
+  } else if (auto *r = dynamic_cast<ReturnStm *>(s)) {
+    o << "- ReturnStm\n"; pExp(r->e, o, d + 1);
+  } else if (auto *i = dynamic_cast<IfStm *>(s)) {
+    o << "- IfStm\n";
+    ind(o, d + 1); o << "cond:\n"; pExp(i->condition, o, d + 2);
+    ind(o, d + 1); o << "then:\n"; pBody(i->then, o, d + 2);
+    if (i->els) { ind(o, d + 1); o << "else:\n"; pBody(i->els, o, d + 2); }
+  } else if (auto *w = dynamic_cast<WhileStm *>(s)) {
+    o << "- WhileStm\n";
+    ind(o, d + 1); o << "cond:\n"; pExp(w->condition, o, d + 2);
+    ind(o, d + 1); o << "body:\n"; pBody(w->b, o, d + 2);
+  } else if (auto *dw = dynamic_cast<DoWhileStm *>(s)) {
+    o << "- DoWhileStm\n";
+    ind(o, d + 1); o << "body:\n"; pBody(dw->b, o, d + 2);
+    ind(o, d + 1); o << "cond:\n"; pExp(dw->condition, o, d + 2);
+  } else if (dynamic_cast<BreakStm *>(s)) {
+    o << "- BreakStm\n";
+  } else if (auto *sw = dynamic_cast<SwitchStm *>(s)) {
+    o << "- SwitchStm\n";
+    pExp(sw->e, o, d + 1);
+    for (auto *c : sw->cases) {
+      ind(o, d + 1); o << "case " << c->value << ":\n";
+      for (auto *cs : c->body) pStm(cs, o, d + 2);
+    }
+    if (!sw->default_body.empty()) {
+      ind(o, d + 1); o << "default:\n";
+      for (auto *cs : sw->default_body) pStm(cs, o, d + 2);
+    }
+  } else {
+    o << "- Stm\n";
+  }
+}
+
+static void pBody(Body *b, std::ostream &o, int d) {
+  if (!b) { ind(o, d); o << "- (vacío)\n"; return; }
+  for (auto *vd : b->declarations) {
+    ind(o, d); o << "- VarDec " << (vd->type.empty() ? "(inferido)" : vd->type) << ":";
+    for (auto &v : vd->vars) o << " " << v;
+    o << "\n";
+    if (vd->init) pExp(vd->init, o, d + 1);
+  }
+  for (auto *s : b->StmList) pStm(s, o, d);
+}
+
+void printAst(Program *p, std::ostream &o) {
+  o << "Program\n";
+  for (auto *sd : p->sdlist) {
+    o << "  - StructDec " << sd->name << "\n";
+    for (auto *fld : sd->fields) {
+      o << "      - campo " << fld->type << ":";
+      for (auto &v : fld->vars) o << " " << v;
+      o << "\n";
+    }
+  }
+  for (auto *vd : p->vdlist) {
+    o << "  - VarDec global " << (vd->type.empty() ? "(inferido)" : vd->type) << ":";
+    for (auto &v : vd->vars) o << " " << v;
+    o << "\n";
+  }
+  for (auto *fd : p->fdlist) {
+    o << "  - FunDec " << fd->tipo << " " << fd->nombre << "(";
+    for (size_t i = 0; i < fd->Pnombres.size(); ++i) {
+      if (i) o << ", ";
+      o << fd->Ptipos[i] << " " << fd->Pnombres[i];
+    }
+    o << ")\n";
+    pBody(fd->cuerpo, o, 2);
+  }
+}

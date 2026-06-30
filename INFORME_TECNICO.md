@@ -449,20 +449,89 @@ estas optimizaciones locales.)
 
 ---
 
-## 7. La aplicación y las pruebas
+## 7. Características avanzadas del lenguaje (requisitos del enunciado)
+
+El enunciado exige un conjunto de características básicas y avanzadas. Todas las siguientes están
+implementadas y **verificadas por ejecución** (tests `input11`–`input16`).
+
+### 7.1 Cadenas de caracteres (strings) — *básica*
+Literales `"..."` (token `STRING` en el lexer, nodo `StringExp`). Los literales se emiten en `.data`
+como `.string` con una etiqueta, y la expresión carga su dirección (`leaq etiqueta(%rip), %rax`).
+`print` detecta el tipo `string` y usa el formato `%s`. Variables `var string s`.
+
+### 7.2 Menos unario y negación — *corrige una carencia*
+`-x` (nodo `UnaryExp` con `NEG_OP`) genera `negq`; `!x` (negación lógica) se mantiene. Antes
+`x = -5` daba error sintáctico.
+
+### 7.3 Inferencia de tipos — *avanzada*
+`var x = expr` deduce el tipo de `x` a partir del inicializador (`TypeCheckerVisitor::inferType`):
+`"hola"`→string, `new int{..}`→list, `3.14`→float, aritmética→int. Es una forma de **atributo
+sintetizado** (Sem7): el tipo de la variable se obtiene del tipo del subárbol de la derecha.
+
+### 7.4 Punteros y memoria dinámica — *avanzada*
+- `&x` (`AddrExp`) → `leaq` de la dirección de la variable.
+- `*p` (`DerefExp`) → lee/escribe el valor apuntado (`movq (%rax), …`); soporta `*p = expr` como
+  lvalue.
+- **Memoria dinámica** ya presente: `new T[n]`, `new T[f][c]`, `new T{…}` emiten `malloc@PLT`.
+
+### 7.5 Tipos float, promoción y conversión automática — *avanzada*
+Tipo `float` (double de 64 bits) con generación de código **SSE**:
+- Literales `3.14` (token `FLOATNUM`, nodo `FloatExp`) emitidos como `.double` en `.data`.
+- Aritmética con `movsd/addsd/subsd/mulsd/divsd` y comparación con `ucomisd`, en `%xmm0/%xmm1`.
+- **Promoción automática** int→float en operaciones mixtas (`cvtsi2sd`): `pi + 1` promueve `1`.
+- **Conversión automática** float→int al asignar a un entero (`cvttsd2si`): `n = area` trunca.
+- Float en **parámetros y retorno** de funciones (convención uniforme: los 64 bits viajan por
+  registro entero y se mueven `%xmm0↔GPR` en los bordes).
+- `print` de float usa el formato `%g`. El método `exprType` decide en cada expresión si se usa la
+  ruta entera (`%rax`) o la de punto flotante (`%xmm0`).
+- **Corrección de alineación de pila**: el marco se redondea a 16 bytes (la ABI x86-64 lo exige
+  antes de cada `call`; sin ello, `printf` con argumentos float hace *segfault* por `movaps`).
+
+### 7.6 Tipos genéricos / plantillas — *avanzada*
+Funciones genéricas `fun T nombre<T>(T a, …)` con **borrado de tipos** (*type erasure*, como en
+Java): como todos los valores ocupan 8 bytes y se pasan igual, una función genérica se compila una
+sola vez y sirve para cualquier tipo. El parser reconoce la lista de parámetros de tipo `<T, …>`
+(campo `typeParams`); el resto es transparente para el backend.
+
+### 7.7 Funciones lambda — *avanzada*
+`lambda(params) cuerpo endlambda` es una **función anónima** que el parser **iza** a una función
+global con nombre generado (`__lambda_N`) y añade a la lista de funciones del programa. La expresión
+evalúa a la **dirección de esa función** (puntero a función, `leaq`). Una variable puede guardarla y
+**llamarse indirectamente** (`call *%r11`), o pasarse como argumento a otra función.
+
+### 7.8 Resumen frente al enunciado
+
+| Requisito del enunciado | Estado | Dónde |
+|--------------------------|--------|-------|
+| Tipos básicos, variables, scope, funciones, control | ✅ | parser + TypeChecker + GenCode |
+| Struct, arreglos | ✅ | `StructDec`, `list`/`matrix` |
+| **Cadenas de caracteres (strings)** | ✅ | `StringExp` |
+| **Punteros, direccionamiento, memoria dinámica** | ✅ | `AddrExp`/`DerefExp` + `malloc` |
+| **Tipos genéricos / plantillas** | ✅ | `<T>` (type erasure) |
+| **Inferencia de tipos** | ✅ | `var x = expr` |
+| **Conversión y promoción automática** | ✅ | float ↔ int (SSE) |
+| **Arreglos multidimensionales** | ✅ | `matrix` (`new int[f][c]`) |
+| **Funciones lambda** | ✅ | `lambda … endlambda` |
+
+---
+
+## 8. La aplicación y las pruebas
 
 - **Driver (`main.cpp`):** recibe un archivo fuente, ejecuta el *pipeline* y escribe el `.s`.
+  Admite además `--tokens` (volcado del análisis léxico) y `--ast` (impresión del árbol de sintaxis
+  abstracta, el *PrintVisitor* de Sem4).
 - **Banco de pruebas (`run_tests.py`):** compila el compilador, y para cada `inputN.txt`
   (1) genera el `.s`, (2) lo compara con el `.s` de referencia en `outputs/` (regresión de
   codegen) y (3) lo **ensambla, enlaza y ejecuta**, comparando la salida real con la esperada
   (validación semántica). Es portable (Linux/Windows).
-- **Casos cubiertos (`inputs/`):** variables y aritmética, `struct`, arreglos (`list`), matrices
-  (`new int[f][c]`, por tamaño y por valores), bucles `while` anidados, funciones (incluida
-  recursión) y combinación struct + arreglos + llamadas. Los 10 casos pasan ejecución y codegen.
+- **Casos cubiertos (`inputs/`):** 16 programas — variables y aritmética, `struct`, arreglos
+  (`list`), matrices (por tamaño y por valores), bucles `while` anidados, funciones (incluida
+  recursión), y un caso por cada característica avanzada (strings, inferencia + menos unario,
+  punteros, float, genéricos, lambdas). **Los 16 pasan ejecución y codegen.**
 
 ---
 
-## 8. Mapa final: clase del profesor → componente del compilador
+## 9. Mapa final: clase del profesor → componente del compilador
 
 | Semana | Tema de clase | Componente implementado |
 |--------|---------------|--------------------------|
@@ -480,15 +549,16 @@ estas optimizaciones locales.)
 
 ---
 
-## 9. Estado frente a la rúbrica y trabajo pendiente
+## 10. Estado frente a la rúbrica y trabajo pendiente
 
 **Cubierto y funcionando:** diseño del lenguaje y lexer; parser + AST + tabla de símbolos;
 análisis semántico (tipos, scope, structs, aridad); generación x86-64 correcta (verificada por
-ejecución); **tres optimizaciones** con mejora medible; patrón Visitor como arquitectura.
+ejecución de 16 casos); **tres optimizaciones** con mejora medible; patrón Visitor como
+arquitectura; y **todas las características avanzadas del enunciado** (strings, punteros y memoria
+dinámica, genéricos/plantillas, inferencia, conversión y promoción automática de tipos, arreglos
+multidimensionales y funciones lambda — ver sección 7).
 
-**Pendiente para nota máxima / bonus (no implementado aún):**
-- Características avanzadas del enunciado: **strings**, **genéricos/templates**, **inferencia y
-  promoción de tipos**, **funciones lambda** (hoy el lenguaje es principalmente `int`).
+**Pendiente (pospuesto por decisión del equipo, no es parte de esta entrega):**
 - **Benchmarks y comparación experimental** contra GCC/Clang (criterio "Comparación Comercial").
 - **Aplicación del bonus (+3):** editor, visualizador de AST, ejecución/simulación y visualización
   de resultados integrados.

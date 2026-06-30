@@ -1,0 +1,9 @@
+fun int main()
+    var int x;
+    var list p;
+    x = 7;
+    p = &x;
+    *p = 50;
+    print(x);
+    return(0)
+endfun

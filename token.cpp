@@ -32,8 +32,11 @@ std::string Token::typeName(Type t) {
   case AND: return "'&&'";
   case OR: return "'||'";
   case NOT: return "'!'";
+  case AMP: return "'&'";
   case ASSIGN: return "'='";
   case NUM: return "número";
+  case FLOATNUM: return "número decimal";
+  case STRING: return "cadena";
   case TRUE: return "'true'";
   case FALSE: return "'false'";
   case ID: return "identificador";
@@ -58,6 +61,8 @@ std::string Token::typeName(Type t) {
   case FUN: return "'fun'";
   case ENDFUN: return "'endfun'";
   case RETURN: return "'return'";
+  case LAMBDA: return "'lambda'";
+  case ENDLAMBDA: return "'endlambda'";
   case ERR: return "<error léxico>";
   case END: return "fin de entrada";
   default: return "<desconocido>";
@@ -89,8 +94,11 @@ std::ostream &operator<<(std::ostream &outs, const Token &tok) {
   case Token::AND: outs << "TOKEN(AND, \"" << tok.text << "\")"; break;
   case Token::OR: outs << "TOKEN(OR, \"" << tok.text << "\")"; break;
   case Token::NOT: outs << "TOKEN(NOT, \"" << tok.text << "\")"; break;
+  case Token::AMP: outs << "TOKEN(AMP, \"" << tok.text << "\")"; break;
   case Token::ASSIGN: outs << "TOKEN(ASSIGN, \"" << tok.text << "\")"; break;
   case Token::NUM: outs << "TOKEN(NUM, \"" << tok.text << "\")"; break;
+  case Token::FLOATNUM: outs << "TOKEN(FLOATNUM, \"" << tok.text << "\")"; break;
+  case Token::STRING: outs << "TOKEN(STRING, \"" << tok.text << "\")"; break;
   case Token::TRUE: outs << "TOKEN(TRUE, \"" << tok.text << "\")"; break;
   case Token::FALSE: outs << "TOKEN(FALSE, \"" << tok.text << "\")"; break;
   case Token::ID: outs << "TOKEN(ID, \"" << tok.text << "\")"; break;
@@ -115,6 +123,8 @@ std::ostream &operator<<(std::ostream &outs, const Token &tok) {
   case Token::FUN: outs << "TOKEN(FUN, \"" << tok.text << "\")"; break;
   case Token::ENDFUN: outs << "TOKEN(ENDFUN, \"" << tok.text << "\")"; break;
   case Token::RETURN: outs << "TOKEN(RETURN, \"" << tok.text << "\")"; break;
+  case Token::LAMBDA: outs << "TOKEN(LAMBDA, \"" << tok.text << "\")"; break;
+  case Token::ENDLAMBDA: outs << "TOKEN(ENDLAMBDA, \"" << tok.text << "\")"; break;
   case Token::NEW: outs << "TOKEN(NEW, \"" << tok.text << "\")"; break;
   case Token::ERR: outs << "TOKEN(ERR, \"" << tok.text << "\")"; break;
   case Token::END: outs << "TOKEN(END)"; break;

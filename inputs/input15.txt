@@ -1,0 +1,12 @@
+fun T mayor<T>(T a, T b)
+    if a > b then
+        return(a)
+    endif;
+    return(b)
+endfun
+
+fun int main()
+    print(mayor(7, 3));
+    print(mayor(100, 250));
+    return(0)
+endfun

@@ -1,0 +1,11 @@
+fun int aplica(list f, int x)
+    return(f(x))
+endfun
+
+fun int main()
+    var list cuadrado;
+    cuadrado = lambda(int n) return(n * n) endlambda;
+    print(cuadrado(6));
+    print(aplica(cuadrado, 9));
+    return(0)
+endfun

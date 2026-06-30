@@ -27,7 +27,34 @@ Token *Scanner::nextToken() {
     current++;
     while (current < input.length() && isdigit(input[current]))
       current++;
+    // Parte decimal: número en punto flotante (p. ej. 3.14)
+    if (current + 1 < input.length() && input[current] == '.' &&
+        isdigit(input[current + 1])) {
+      current++; // '.'
+      while (current < input.length() && isdigit(input[current]))
+        current++;
+      return new Token(Token::FLOATNUM, input, first, current - first);
+    }
     return new Token(Token::NUM, input, first, current - first);
+  }
+
+  if (c == '"') {
+    current++; // comilla de apertura
+    size_t start = current;
+    while (current < input.length() && input[current] != '"') {
+      if (input[current] == '\\' && current + 1 < input.length())
+        current += 2; // saltar la secuencia de escape (p. ej. \" o \n)
+      else
+        current++;
+    }
+    if (current >= input.length()) {
+      return new Token(Token::ERR, '"'); // cadena sin cerrar
+    }
+    std::string content = input.substr(start, current - start);
+    current++; // comilla de cierre
+    Token *t = new Token(Token::STRING);
+    t->text = content;
+    return t;
   }
 
   if (isalpha(c)) {
@@ -84,6 +111,10 @@ Token *Scanner::nextToken() {
       return new Token(Token::NEW, input, first, current - first);
     if (lexema == "return")
       return new Token(Token::RETURN, input, first, current - first);
+    if (lexema == "lambda")
+      return new Token(Token::LAMBDA, input, first, current - first);
+    if (lexema == "endlambda")
+      return new Token(Token::ENDLAMBDA, input, first, current - first);
 
     return new Token(Token::ID, input, first, current - first);
   }
@@ -189,7 +220,7 @@ Token *Scanner::nextToken() {
         token = new Token(Token::AND, input, first, 2);
         current += 2;
       } else {
-        token = new Token(Token::ERR, c);
+        token = new Token(Token::AMP, c); // dirección-de (&x)
         current++;
       }
       break;

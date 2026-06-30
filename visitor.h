@@ -9,6 +9,11 @@
 #include <vector>
 
 class BinaryExp;
+class StringExp;
+class FloatExp;
+class AddrExp;
+class DerefExp;
+class LambdaExp;
 class Body;
 class BreakStm;
 class DoWhileStm;
@@ -38,6 +43,11 @@ class Visitor {
 public:
   virtual int visit(BinaryExp *exp) = 0;
   virtual int visit(NumberExp *exp) = 0;
+  virtual int visit(FloatExp *exp) = 0;
+  virtual int visit(StringExp *exp) = 0;
+  virtual int visit(AddrExp *exp) = 0;
+  virtual int visit(DerefExp *exp) = 0;
+  virtual int visit(LambdaExp *exp) = 0;
   virtual int visit(IdExp *exp) = 0;
   virtual int visit(UnaryExp *exp) = 0;
   virtual int visit(IndexExp *exp) = 0;
@@ -68,6 +78,11 @@ public:
   int Opt1(Program *program);
   int visit(BinaryExp *exp) override;
   int visit(NumberExp *exp) override;
+  int visit(FloatExp *exp) override;
+  int visit(StringExp *exp) override;
+  int visit(AddrExp *exp) override;
+  int visit(DerefExp *exp) override;
+  int visit(LambdaExp *exp) override;
   int visit(IdExp *exp) override;
   int visit(UnaryExp *exp) override;
   int visit(IndexExp *exp) override;
@@ -102,6 +117,11 @@ public:
   int Opt2(Program *program);
   int visit(BinaryExp *exp) override;
   int visit(NumberExp *exp) override;
+  int visit(FloatExp *exp) override;
+  int visit(StringExp *exp) override;
+  int visit(AddrExp *exp) override;
+  int visit(DerefExp *exp) override;
+  int visit(LambdaExp *exp) override;
   int visit(IdExp *exp) override;
   int visit(UnaryExp *exp) override;
   int visit(IndexExp *exp) override;
@@ -138,11 +158,19 @@ public:
   Environment<int> entorno;
   Environment<std::string> tiposVar;
   std::string funcionActual;
+  std::vector<StringExp *> stringLiterals; // literales recolectados para .data
+  std::vector<FloatExp *> floatLiterals;   // literales float para .data
 
   int TypeChecker(Program *program);
+  std::string inferType(Exp *e); // inferencia de tipos para 'var x = expr'
 
   int visit(BinaryExp *exp) override;
   int visit(NumberExp *exp) override;
+  int visit(FloatExp *exp) override;
+  int visit(StringExp *exp) override;
+  int visit(AddrExp *exp) override;
+  int visit(DerefExp *exp) override;
+  int visit(LambdaExp *exp) override;
   int visit(IdExp *exp) override;
   int visit(UnaryExp *exp) override;
   int visit(IndexExp *exp) override;
@@ -178,7 +206,8 @@ enum class LValKind {
   MatrixVals,
   Index,
   Matrix,
-  Field
+  Field,
+  Deref
 };
 
 struct LVal {
@@ -202,11 +231,15 @@ private:
   LVal captureLVal(Exp *exp);
   bool leafOperand(Exp *e, std::string &operand);
   void emitBinOp(BinaryOp op, const std::string &src);
+  bool exprIsString(Exp *e); // ¿la expresión es de tipo string?
+  std::string exprType(Exp *e); // "float" o "int" (tipo estático de la expresión)
+  void genFloat(Exp *e); // evalúa e dejando un double en %xmm0 (promueve int)
   int storeTarget(const LVal &lv);
   int storeId    (const LVal &lv);
   int storeIndex (const LVal &lv);
   int storeMatrix(const LVal &lv);
   int storeField (const LVal &lv);
+  int storeDeref (const LVal &lv);
 
 public:
   TypeCheckerVisitor tipos;
@@ -219,6 +252,7 @@ public:
   std::unordered_map<std::string, int> matrixColumns;
   std::unordered_map<std::string, std::vector<std::string>> funParamNames;
   std::unordered_map<std::string, std::vector<std::string>> funParamTypes;
+  std::unordered_map<std::string, std::string> funReturnType; // tipo de retorno
   std::unordered_map<std::string, std::string> currentMatrixParamLabels;
   std::unordered_map<std::string, bool> memoriaGlobal;
   int offset = -8;
@@ -233,6 +267,11 @@ public:
 
   int visit(BinaryExp *exp) override;
   int visit(NumberExp *exp) override;
+  int visit(FloatExp *exp) override;
+  int visit(StringExp *exp) override;
+  int visit(AddrExp *exp) override;
+  int visit(DerefExp *exp) override;
+  int visit(LambdaExp *exp) override;
   int visit(IdExp *exp) override;
   int visit(UnaryExp *exp) override;
   int visit(IndexExp *exp) override;

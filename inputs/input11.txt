@@ -1,0 +1,7 @@
+fun int main()
+    var string s;
+    s = "hola";
+    print(s);
+    print("mundo");
+    return(0)
+endfun

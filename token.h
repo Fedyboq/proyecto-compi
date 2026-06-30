@@ -33,10 +33,13 @@ public:
     AND,
     OR,
     NOT,
+    AMP,
 
     ASSIGN,
 
     NUM,
+    FLOATNUM,
+    STRING,
     TRUE,
     FALSE,
 
@@ -66,6 +69,8 @@ public:
     FUN,
     ENDFUN,
     RETURN,
+    LAMBDA,
+    ENDLAMBDA,
 
     ERR,
     END

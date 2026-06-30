@@ -9,6 +9,8 @@ private:
   Scanner *scanner;
   Token *current;
   Token *previous;
+  std::vector<FunDec *> lambdas; // funciones lambda izadas a nivel global
+  int lambdaCounter = 0;
 
   bool match(Token::Type ttype);
   bool check(Token::Type ttype);

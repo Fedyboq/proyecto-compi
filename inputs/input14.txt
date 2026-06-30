@@ -1,0 +1,11 @@
+fun float promedio(float a, float b)
+    return((a + b) / 2.0)
+endfun
+
+fun int main()
+    var float a;
+    a = 2.5;
+    print(a + 1.5);
+    print(promedio(3.0, 8.0));
+    return(0)
+endfun

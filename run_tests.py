@@ -31,6 +31,13 @@ EXPECTED_RUN = {
     "8":  "12",
     "9":  "6 8 10 12",
     "10": "24 9",
+    # características adicionales del lenguaje
+    "11": "hola mundo",        # strings
+    "12": "15 -3",             # inferencia de tipos + menos unario
+    "13": "50",                # punteros (& y *)
+    "14": "4 5.5",             # float + promoción/conversión
+    "15": "7 250",             # genéricos
+    "16": "36 81",             # lambdas
 }
 
 SOURCES = ["main.cpp", "scanner.cpp", "token.cpp",

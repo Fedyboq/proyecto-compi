@@ -10,13 +10,33 @@ BinaryExp::~BinaryExp() {
   delete right;
 }
 
-UnaryExp::UnaryExp(Exp *o) : operand(o) {}
+UnaryExp::UnaryExp(Exp *o, UnaryOp op) : operand(o), op(op) {}
 
 UnaryExp::~UnaryExp() { delete operand; }
+
+StringExp::StringExp(const std::string &v) : value(v) {}
+
+StringExp::~StringExp() {}
+
+AddrExp::AddrExp(const std::string &n) : name(n) {}
+
+AddrExp::~AddrExp() {}
+
+DerefExp::DerefExp(Exp *p) : ptr(p) {}
+
+DerefExp::~DerefExp() { delete ptr; }
+
+LambdaExp::LambdaExp(const std::string &n) : name(n) {}
+
+LambdaExp::~LambdaExp() {}
 
 NumberExp::NumberExp(int v) : value(v) {}
 
 NumberExp::~NumberExp() {}
+
+FloatExp::FloatExp(double v) : value(v) {}
+
+FloatExp::~FloatExp() {}
 
 IdExp::IdExp(const std::string &v) : value(v) {}
 

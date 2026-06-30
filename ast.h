@@ -27,6 +27,11 @@ enum BinaryOp {
   OR_OP
 };
 
+enum UnaryOp {
+  NOT_OP, // negación lógica (!)
+  NEG_OP  // negación aritmética (-)
+};
+
 class Exp {
 public:
   bool isConstant = false;
@@ -50,9 +55,47 @@ public:
 class UnaryExp : public Exp {
 public:
   Exp *operand;
-  UnaryExp(Exp *operand);
+  UnaryOp op;
+  UnaryExp(Exp *operand, UnaryOp op);
   int accept(Visitor *visitor) override;
   ~UnaryExp();
+};
+
+class StringExp : public Exp {
+public:
+  std::string value;     // contenido del literal (sin comillas)
+  std::string strLabel;  // etiqueta asignada en .data por el generador
+  StringExp(const std::string &v);
+  int accept(Visitor *visitor) override;
+  ~StringExp();
+};
+
+// &x : dirección de una variable.
+class AddrExp : public Exp {
+public:
+  std::string name;
+  AddrExp(const std::string &n);
+  int accept(Visitor *visitor) override;
+  ~AddrExp();
+};
+
+// *p : desreferencia (valor apuntado por p).
+class DerefExp : public Exp {
+public:
+  Exp *ptr;
+  DerefExp(Exp *p);
+  int accept(Visitor *visitor) override;
+  ~DerefExp();
+};
+
+// Función anónima (lambda). Se iza a una función global con nombre generado;
+// la expresión evalúa a la dirección de esa función (puntero a función).
+class LambdaExp : public Exp {
+public:
+  std::string name; // nombre de la función izada
+  LambdaExp(const std::string &n);
+  int accept(Visitor *visitor) override;
+  ~LambdaExp();
 };
 
 class NumberExp : public Exp {
@@ -61,6 +104,16 @@ public:
   NumberExp(int v);
   int accept(Visitor *visitor) override;
   ~NumberExp();
+};
+
+// Literal en punto flotante (double).
+class FloatExp : public Exp {
+public:
+  double value;
+  std::string fltLabel; // etiqueta .double asignada por el generador
+  FloatExp(double v);
+  int accept(Visitor *visitor) override;
+  ~FloatExp();
 };
 
 class IdExp : public Exp {
@@ -238,6 +291,7 @@ class VarDec {
 public:
   std::string type;
   std::list<std::string> vars;
+  Exp *init = nullptr; // inicializador opcional (inferencia: 'var x = expr')
   VarDec();
   int accept(Visitor *visitor);
   ~VarDec();
@@ -268,6 +322,7 @@ public:
   Body *cuerpo;
   std::vector<std::string> Ptipos;
   std::vector<std::string> Pnombres;
+  std::vector<std::string> typeParams; // parámetros de tipo genéricos: <T, U>
   FunDec() = default;
   int accept(Visitor *visitor);
   ~FunDec() = default;
@@ -282,5 +337,8 @@ public:
   int accept(Visitor *visitor);
   ~Program() = default;
 };
+
+// Imprime el AST como un árbol indentado (visualización del AST, Sem4).
+void printAst(Program *p, std::ostream &o);
 
 #endif
