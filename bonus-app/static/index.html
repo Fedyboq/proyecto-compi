@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CompiLab · IDE del compilador x86-64</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ════ TOP BAR ════ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#14171d"/>
+        <path d="M9 11 L5 16 L9 21" stroke="#34d399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M23 11 L27 16 L23 21" stroke="#fbbf24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="18.5" y1="9" x2="13.5" y2="23" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="brand-name">CompiLab</div>
+        <div class="brand-sub">compilador x86-64 · CS3402</div>
+      </div>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <button class="btn btn-ghost btn-sm" id="btnExamples" title="Cargar un ejemplo">✦ Ejemplos</button>
+    <button class="btn btn-ghost btn-icon" id="btnTheme" title="Cambiar tema">◐</button>
+    <button class="btn btn-ghost btn-sm" id="btnDownload" title="Descargar ensamblador (.s)">⤓ .s</button>
+    <button class="btn btn-primary" id="btnRun">▶ Compilar y ejecutar</button>
+  </header>
+
+  <!-- ════ WORKSPACE ════ -->
+  <div class="workspace">
+
+    <!-- IZQUIERDA: Editor -->
+    <div class="col">
+      <div class="panel">
+        <div class="panel-head"><span class="dot"></span> Editor de código · lenguaje propio</div>
+        <div class="editor-wrap">
+          <div class="gutter" id="gutter">1</div>
+          <div class="editor-scroll" id="editorScroll">
+            <div class="editor-stack">
+              <pre class="highlight" id="highlight" aria-hidden="true"></pre>
+              <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DERECHA: Fases del compilador -->
+    <div class="col">
+      <div class="panel">
+        <!-- breadcrumb del pipeline -->
+        <div class="pipeline" id="pipeline"></div>
+
+        <!-- tabs de las fases -->
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="result">▸ Resultado</button>
+          <button class="tab" data-tab="ast">⌬ AST <span class="count" id="astCount"></span></button>
+          <button class="tab" data-tab="asm">⚙ Ensamblador x86</button>
+          <button class="tab" data-tab="tokens">❑ Tokens <span class="count" id="tokCount"></span></button>
+        </div>
+
+        <!-- vista: resultado de ejecución -->
+        <div class="view active" data-view="result">
+          <div class="result">
+            <div class="result-status" id="resultStatus">
+              <span class="text-faint" style="color:var(--text-faint)">Pulsa «Compilar y ejecutar» para ver la salida.</span>
+            </div>
+            <div class="result-out empty" id="output">—</div>
+          </div>
+        </div>
+
+        <!-- vista: AST -->
+        <div class="view" data-view="ast">
+          <div class="ast-wrap" id="astWrap">
+            <div class="ast-controls">
+              <button class="btn btn-ghost btn-icon" id="astZoomIn" title="Acercar">+</button>
+              <button class="btn btn-ghost btn-icon" id="astZoomOut" title="Alejar">−</button>
+              <button class="btn btn-ghost btn-icon" id="astFit" title="Ajustar">⤢</button>
+            </div>
+            <svg id="astSvg"></svg>
+            <div class="ast-legend">
+              <span><i style="background:var(--node-decl)"></i> Declaración</span>
+              <span><i style="background:var(--node-stmt)"></i> Sentencia</span>
+              <span><i style="background:var(--node-expr)"></i> Expresión</span>
+              <span><i style="background:var(--node-field)"></i> Campo</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- vista: ensamblador -->
+        <div class="view" data-view="asm">
+          <pre class="codeblock" id="asm"></pre>
+        </div>
+
+        <!-- vista: tokens -->
+        <div class="view" data-view="tokens">
+          <div class="tokens" id="tokens"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ MODAL EJEMPLOS ════ -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="font-size:15px">Ejemplos — características del lenguaje</h2>
+      <button class="btn btn-ghost btn-icon" id="btnCloseEx">✕</button>
+    </div>
+    <div class="modal-grid" id="exampleGrid"></div>
+  </div>
+</div>
+
+<script src="examples.js"></script>
+<script src="highlight.js"></script>
+<script src="ast.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

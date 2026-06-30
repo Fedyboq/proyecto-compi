@@ -10,3 +10,4 @@ a.exe
 /compilador
 inputs/*.out
 cmake-build-debug/
+bonus-app/compilador_bin

@@ -558,10 +558,14 @@ arquitectura; y **todas las características avanzadas del enunciado** (strings,
 dinámica, genéricos/plantillas, inferencia, conversión y promoción automática de tipos, arreglos
 multidimensionales y funciones lambda — ver sección 7).
 
-**Pendiente (pospuesto por decisión del equipo, no es parte de esta entrega):**
+**Aplicación del bonus (+3) — implementada** en la carpeta `bonus-app/` (ver su `README.md`):
+una IDE web (**CompiLab**) que integra los cinco componentes exigidos por el enunciado: editor de
+código, visualización del AST, generación de ensamblador x86, ejecución del binario nativo y
+visualización de resultados, más un breadcrumb del pipeline y un panel de tokens. No modifica el
+compilador: solo usa su binario y los modos `--tokens` / `--ast`.
+
+**Pendiente (pospuesto por decisión del equipo):**
 - **Benchmarks y comparación experimental** contra GCC/Clang (criterio "Comparación Comercial").
-- **Aplicación del bonus (+3):** editor, visualizador de AST, ejecución/simulación y visualización
-  de resultados integrados.
 
 ---
 
