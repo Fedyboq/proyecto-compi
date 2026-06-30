@@ -93,6 +93,10 @@ public:
   int visit(FunDec *fd) override;
 };
 
+// Pase de etiquetado de Sethi-Ullman (Sem12): asigna a cada nodo del arbol de
+// expresion el numero minimo de registros necesarios para evaluarlo. El
+// generador de codigo usa estas etiquetas para decidir el orden de evaluacion
+// (evaluar primero el subarbol mas costoso) y minimizar el uso de la pila.
 class Opt2Visitor : public Visitor {
 public:
   int Opt2(Program *program);
@@ -196,6 +200,8 @@ private:
   std::ostream &out;
   LVal *lvalTarget = nullptr;
   LVal captureLVal(Exp *exp);
+  bool leafOperand(Exp *e, std::string &operand);
+  void emitBinOp(BinaryOp op, const std::string &src);
   int storeTarget(const LVal &lv);
   int storeId    (const LVal &lv);
   int storeIndex (const LVal &lv);

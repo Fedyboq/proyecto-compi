@@ -31,8 +31,7 @@ class Exp {
 public:
   bool isConstant = false;
   int constantValue = 0;
-  int label = 0;
-  bool ishoja = false;
+  int label = 1; // Sethi-Ullman: registros necesarios para evaluar el nodo
   virtual bool isSpecialRhs() const { return false; }
   virtual int accept(Visitor *visitor) = 0;
   virtual ~Exp() = 0;

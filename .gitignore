@@ -5,3 +5,8 @@ temp_outputs/
 a.out
 a.exe
 .vscode/
+
+# binarios y artefactos locales
+/compilador
+inputs/*.out
+cmake-build-debug/

@@ -769,84 +769,108 @@ int GenCodeVisitor::storeField(const LVal &lv) {
   return 0;
 }
 
+// Un operando "hoja" puede usarse directamente como inmediato (número) o como
+// operando de memoria (variable) dentro de la instrucción aritmética, sin
+// gastar un registro temporal ni un push/pop. Devuelve true y rellena
+// `operand` con la sintaxis AT&T correspondiente.
+bool GenCodeVisitor::leafOperand(Exp *e, std::string &operand) {
+  if (auto *n = dynamic_cast<NumberExp *>(e)) {
+    operand = "$" + std::to_string(n->value);
+    return true;
+  }
+  if (auto *id = dynamic_cast<IdExp *>(e)) {
+    if (memoriaGlobal.count(id->value))
+      operand = id->value + "(%rip)";
+    else
+      operand = std::to_string(memoria[id->value]) + "(%rbp)";
+    return true;
+  }
+  return false;
+}
+
+// Emite  %rax = %rax  <op>  src , donde src es un registro (%rcx), un
+// inmediato ($n) o un operando de memoria. Para DIV y POW el divisor/exponente
+// siempre llega ya materializado en %rcx (ver visit(BinaryExp)).
+void GenCodeVisitor::emitBinOp(BinaryOp op, const std::string &src) {
+  switch (op) {
+  case PLUS_OP:  out << "  addq "  << src << ", %rax\n"; break;
+  case MINUS_OP: out << "  subq "  << src << ", %rax\n"; break;
+  case MUL_OP:   out << "  imulq " << src << ", %rax\n"; break;
+  case DIV_OP:
+    out << "  cqto\n";
+    out << "  idivq " << src << "\n";
+    break;
+  case POW_OP: {
+    int lbl = labelcont++;
+    out << "  movq $1, %rdx\n";
+    out << "pow_loop_" << lbl << ":\n";
+    out << "  cmpq $0, %rcx\n";
+    out << "  jle pow_end_" << lbl << "\n";
+    out << "  imulq %rax, %rdx\n";
+    out << "  subq $1, %rcx\n";
+    out << "  jmp pow_loop_" << lbl << "\n";
+    out << "pow_end_" << lbl << ":\n";
+    out << "  movq %rdx, %rax\n";
+    break;
+  }
+  case LE_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  setl %al\n  movzbq %al, %rax\n";
+    break;
+  case GT_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  setg %al\n  movzbq %al, %rax\n";
+    break;
+  case LEQ_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  setle %al\n  movzbq %al, %rax\n";
+    break;
+  case GEQ_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  setge %al\n  movzbq %al, %rax\n";
+    break;
+  case EQ_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  sete %al\n  movzbq %al, %rax\n";
+    break;
+  case NE_OP:
+    out << "  cmpq " << src << ", %rax\n  movq $0, %rax\n  setne %al\n  movzbq %al, %rax\n";
+    break;
+  case AND_OP: out << "  andq " << src << ", %rax\n"; break;
+  case OR_OP:  out << "  orq "  << src << ", %rax\n"; break;
+  }
+}
+
 int GenCodeVisitor::visit(BinaryExp *exp) {
+  // 1) Plegado de constantes: la subexpresión ya fue evaluada en Opt1.
   if (exp->isConstant) {
     out << "  movq $" << exp->constantValue << ", %rax\n";
-  } else {
-    if (exp->right->label == 0) {
-      exp->left->accept(this);
-      out << "  movq %rax, %rcx\n";
-      exp->right->accept(this);
-      out << "  addq %rcx, %rax\n";
-    } else {
-      exp->left->accept(this);
-      out << "  pushq %rax\n";
-      exp->right->accept(this);
-      out << "  movq %rax, %rcx\n";
-      out << "  popq %rax\n";
-
-      switch (exp->op) {
-      case PLUS_OP:  out << "  addq %rcx, %rax\n";  break;
-      case MINUS_OP: out << "  subq %rcx, %rax\n";  break;
-      case MUL_OP:   out << "  imulq %rcx, %rax\n"; break;
-      case DIV_OP:
-        out << "  cqto\n";
-        out << "  idivq %rcx\n";
-        break;
-      case POW_OP: {
-        int lbl = labelcont++;
-        out << "  movq $1, %rdx\n";
-        out << "pow_loop_" << lbl << ":\n";
-        out << "  cmpq $0, %rcx\n";
-        out << "  jle pow_end_" << lbl << "\n";
-        out << "  imulq %rax, %rdx\n";
-        out << "  subq $1, %rcx\n";
-        out << "  jmp pow_loop_" << lbl << "\n";
-        out << "pow_end_" << lbl << ":\n";
-        out << "  movq %rdx, %rax\n";
-        break;
-      }
-      case LE_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  setl %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case GT_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  setg %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case LEQ_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  setle %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case GEQ_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  setge %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case EQ_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  sete %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case NE_OP:
-        out << "  cmpq %rcx, %rax\n";
-        out << "  movq $0, %rax\n";
-        out << "  setne %al\n";
-        out << "  movzbq %al, %rax\n";
-        break;
-      case AND_OP: out << "  andq %rcx, %rax\n"; break;
-      case OR_OP:  out << "  orq %rcx, %rax\n";  break;
-      }
-    }
+    return 0;
   }
+
+  // 2) Peephole (caso r=0 de Sethi-Ullman): si el operando derecho no necesita
+  //    registro (es un número o una variable) lo plegamos como operando
+  //    inmediato/memoria de la propia instrucción y evitamos el push/pop.
+  //    Se excluyen DIV y POW, cuyo divisor/exponente debe estar en %rcx.
+  std::string rop;
+  if (exp->op != DIV_OP && exp->op != POW_OP && leafOperand(exp->right, rop)) {
+    exp->left->accept(this);   // izquierda -> %rax
+    emitBinOp(exp->op, rop);   // %rax = izquierda <op> derecha
+    return 0;
+  }
+
+  // 3) Caso general (Sethi-Ullman): se evalúa primero el subárbol que requiere
+  //    más registros para minimizar el uso de la pila. En ambas ramas el
+  //    resultado queda con la izquierda en %rax y la derecha en %rcx, de modo
+  //    que `op %rcx, %rax` calcula siempre  izquierda <op> derecha.
+  if (exp->left->label >= exp->right->label) {
+    exp->left->accept(this);          // izquierda -> %rax
+    out << "  pushq %rax\n";
+    exp->right->accept(this);         // derecha -> %rax
+    out << "  movq %rax, %rcx\n";     // derecha -> %rcx
+    out << "  popq %rax\n";           // izquierda -> %rax
+  } else {
+    exp->right->accept(this);         // derecha -> %rax
+    out << "  pushq %rax\n";
+    exp->left->accept(this);          // izquierda -> %rax
+    out << "  popq %rcx\n";           // derecha -> %rcx
+  }
+  emitBinOp(exp->op, "%rcx");
   return 0;
 }
 
@@ -1062,22 +1086,45 @@ int Opt1Visitor::Opt1(Program *program) {
 int Opt1Visitor::visit(BinaryExp *exp) {
   exp->left->accept(this);
   exp->right->accept(this);
-  exp->isConstant = exp->left->isConstant && exp->right->isConstant;
-  if (exp->isConstant) {
-    switch (exp->op) {
-    case PLUS_OP:
-      exp->constantValue = exp->left->constantValue + exp->right->constantValue;
-      break;
-    case MINUS_OP:
-      exp->constantValue = exp->left->constantValue - exp->right->constantValue;
-      break;
-    case MUL_OP:
-      exp->constantValue = exp->left->constantValue * exp->right->constantValue;
-      break;
-    default:
-      break;
-    }
+
+  // Solo se pliega si ambos operandos son constantes.
+  if (!(exp->left->isConstant && exp->right->isConstant)) {
+    exp->isConstant = false;
+    return 0;
   }
+
+  long l = exp->left->constantValue;
+  long r = exp->right->constantValue;
+  long v = 0;
+  bool foldable = true;
+
+  switch (exp->op) {
+  case PLUS_OP:  v = l + r; break;
+  case MINUS_OP: v = l - r; break;
+  case MUL_OP:   v = l * r; break;
+  case DIV_OP:
+    if (r == 0) foldable = false; // división por cero: se deja para runtime
+    else v = l / r;
+    break;
+  case POW_OP: {
+    v = 1;
+    for (long i = 0; i < r; ++i) v *= l;
+    break;
+  }
+  case LE_OP:  v = (l <  r); break;
+  case GT_OP:  v = (l >  r); break;
+  case LEQ_OP: v = (l <= r); break;
+  case GEQ_OP: v = (l >= r); break;
+  case EQ_OP:  v = (l == r); break;
+  case NE_OP:  v = (l != r); break;
+  case AND_OP: v = (l && r); break;
+  case OR_OP:  v = (l || r); break;
+  default:     foldable = false; break;
+  }
+
+  exp->isConstant = foldable;
+  if (foldable)
+    exp->constantValue = static_cast<int>(v);
   return 0;
 }
 
@@ -1150,6 +1197,13 @@ int Opt1Visitor::visit(FunDec *fd) {
   return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Opt2: etiquetado de Sethi-Ullman (Sem12).
+// Hoja -> label 1 (necesita un registro). Nodo binario -> max(l,r) si las
+// etiquetas difieren, o l+1 si son iguales (al empatar hace falta un registro
+// extra para no perder un resultado intermedio). El resto de nodos solo se
+// recorren para alcanzar las expresiones anidadas.
+// ---------------------------------------------------------------------------
 int Opt2Visitor::Opt2(Program *program) {
   program->accept(this);
   return 0;
@@ -1158,30 +1212,24 @@ int Opt2Visitor::Opt2(Program *program) {
 int Opt2Visitor::visit(BinaryExp *exp) {
   exp->left->accept(this);
   exp->right->accept(this);
-  if (exp->left->ishoja) {
-    exp->left->label = 1;
-  }
-  if (exp->right->ishoja) {
-    exp->right->label = 0;
-  }
-  if (exp->left->label == exp->right->label) {
-    exp->label = exp->left->label + 1;
-  } else {
-    exp->label = std::max(exp->left->label, exp->right->label);
-  }
+  int l = exp->left->label;
+  int r = exp->right->label;
+  exp->label = (l == r) ? l + 1 : std::max(l, r);
   return 0;
 }
 
-int Opt2Visitor::visit(NumberExp *exp) {
-  exp->ishoja = true;
+int Opt2Visitor::visit(NumberExp *exp) { exp->label = 1; return 0; }
+int Opt2Visitor::visit(IdExp *exp)     { exp->label = 1; return 0; }
+int Opt2Visitor::visit(IndexExp *exp)  { exp->label = 1; return 0; }
+int Opt2Visitor::visit(MatrixExp *exp) { exp->label = 1; return 0; }
+int Opt2Visitor::visit(FieldExp *exp)  { exp->label = 1; return 0; }
+int Opt2Visitor::visit(FcallExp *exp)  { exp->label = 1; return 0; }
+
+int Opt2Visitor::visit(UnaryExp *exp) {
+  exp->operand->accept(this);
+  exp->label = exp->operand->label;
   return 0;
 }
-
-int Opt2Visitor::visit(IdExp *) { return 0; }
-int Opt2Visitor::visit(UnaryExp *) { return 0; }
-int Opt2Visitor::visit(IndexExp *) { return 0; }
-int Opt2Visitor::visit(MatrixExp *) { return 0; }
-int Opt2Visitor::visit(FieldExp *) { return 0; }
 
 int Opt2Visitor::visit(Program *p) {
   for (auto i : p->sdlist) i->accept(this);
@@ -1195,33 +1243,30 @@ int Opt2Visitor::visit(StructDec *sd) {
   return 0;
 }
 
-int Opt2Visitor::visit(PrintStm *stm) {
-  stm->e->accept(this);
-  return 0;
-}
-
-int Opt2Visitor::visit(AssignStm *stm) {
-  stm->e->accept(this);
-  return 0;
-}
+int Opt2Visitor::visit(PrintStm *stm) { stm->e->accept(this); return 0; }
+int Opt2Visitor::visit(AssignStm *stm) { stm->e->accept(this); return 0; }
 
 int Opt2Visitor::visit(ExpListSize *) { return 0; }
 int Opt2Visitor::visit(ExpListVals *) { return 0; }
 int Opt2Visitor::visit(ExpMatrixSize *) { return 0; }
 int Opt2Visitor::visit(ExpMatrixVals *) { return 0; }
-int Opt2Visitor::visit(WhileStm *) { return 0; }
-int Opt2Visitor::visit(DoWhileStm *) { return 0; }
-int Opt2Visitor::visit(IfStm *) { return 0; }
+int Opt2Visitor::visit(WhileStm *stm) { stm->condition->accept(this); stm->b->accept(this); return 0; }
+int Opt2Visitor::visit(DoWhileStm *stm) { stm->condition->accept(this); stm->b->accept(this); return 0; }
+
+int Opt2Visitor::visit(IfStm *stm) {
+  stm->condition->accept(this);
+  if (stm->then) stm->then->accept(this);
+  if (stm->els) stm->els->accept(this);
+  return 0;
+}
+
 int Opt2Visitor::visit(BreakStm *) { return 0; }
 
 int Opt2Visitor::visit(SwitchStm *stm) {
   stm->e->accept(this);
   for (auto j : stm->default_body) j->accept(this);
-  for (auto i : stm->cases) {
-    for (auto j : i->body) {
-      j->accept(this);
-    }
-  }
+  for (auto i : stm->cases)
+    for (auto j : i->body) j->accept(this);
   return 0;
 }
 
@@ -1232,10 +1277,10 @@ int Opt2Visitor::visit(Body *body) {
 }
 
 int Opt2Visitor::visit(VarDec *) { return 0; }
-int Opt2Visitor::visit(FcallExp *) { return 0; }
-int Opt2Visitor::visit(ReturnStm *) { return 0; }
+int Opt2Visitor::visit(ReturnStm *r) { r->e->accept(this); return 0; }
 
 int Opt2Visitor::visit(FunDec *fd) {
   fd->cuerpo->accept(this);
   return 0;
 }
+
